@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Chat Twitch — okplonk</title>
+  <title>Chat Twitch (choix de chaîne)</title>
   <style>
     body {
       margin: 0;
@@ -15,12 +15,33 @@
       flex-direction: column;
       height: 100vh;
     }
-    h1 {
+    header {
       background: #111;
-      color: #00ff00;
-      font-size: 16px;
-      margin: 0;
       padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    header label {
+      font-size: 13px;
+      color: #bbb;
+    }
+    input {
+      background: #222;
+      color: #0f0;
+      border: 1px solid #333;
+      border-radius: 4px;
+      padding: 5px 8px;
+      width: 140px;
+    }
+    button {
+      background: #0f0;
+      color: #000;
+      border: none;
+      border-radius: 4px;
+      padding: 5px 10px;
+      font-weight: bold;
+      cursor: pointer;
     }
     #chat {
       flex: 1;
@@ -29,43 +50,52 @@
     }
     .msg { margin: 3px 0; }
     .nick { color: #00ff00; font-weight: bold; margin-right: 6px; }
+    .system { color: #888; font-style: italic; }
   </style>
 </head>
 <body>
-  <h1>Chat Twitch — okplonk</h1>
+  <header>
+    <label>Chaîne :</label>
+    <input id="channelInput" type="text" placeholder="okplonk" />
+    <button id="connectBtn">Connecter</button>
+  </header>
+
   <div id="chat"></div>
 
   <script>
     const chatBox = document.getElementById('chat');
-    const nick = 'justinfan' + Math.floor(Math.random() * 1e6);
-    const channel = '#okplonk';
-    let ws;
+    const input = document.getElementById('channelInput');
+    const button = document.getElementById('connectBtn');
+    let ws = null;
 
-    function appendMessage(user, text) {
+    function appendMessage(user, text, cls = '') {
       const div = document.createElement('div');
-      div.className = 'msg';
-      div.innerHTML = `<span class="nick">${user}:</span> ${text}`;
+      div.className = 'msg ' + cls;
+      div.innerHTML = cls === 'system' ? text : `<span class="nick">${user}:</span> ${text}`;
       chatBox.appendChild(div);
       chatBox.scrollTop = chatBox.scrollHeight;
     }
 
-    function connect() {
+    function connectToChannel(channel) {
+      if (ws) { try { ws.close(); } catch {} }
+      if (!channel) return;
+      chatBox.innerHTML = '';
+      const nick = 'justinfan' + Math.floor(Math.random() * 1e6);
+      const chan = '#' + channel.toLowerCase();
       ws = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
+      appendMessage('*system*', `Connexion à ${chan}...`, 'system');
+
       ws.onopen = () => {
         ws.send('CAP REQ :twitch.tv/tags twitch.tv/commands');
         ws.send('PASS SCHMOOPIIE');
         ws.send('NICK ' + nick);
-        ws.send('JOIN ' + channel);
-        appendMessage('*system*', 'Connexion au chat de ' + channel + '...');
+        ws.send('JOIN ' + chan);
       };
 
       ws.onmessage = (event) => {
         const lines = event.data.split(/\r?\n/).filter(Boolean);
         for (const line of lines) {
-          if (line.startsWith('PING')) {
-            ws.send('PONG :tmi.twitch.tv');
-            continue;
-          }
+          if (line.startsWith('PING')) { ws.send('PONG :tmi.twitch.tv'); continue; }
           const match = line.match(/^(?:@[^ ]* )?:([^!]+)!.* PRIVMSG #[^ ]+ :(.*)$/);
           if (match) {
             const user = match[1];
@@ -75,14 +105,15 @@
         }
       };
 
-      ws.onerror = (e) => appendMessage('*error*', 'Erreur de connexion : ' + e.message);
-      ws.onclose = () => {
-        appendMessage('*system*', 'Déconnecté. Reconnexion dans 3 secondes...');
-        setTimeout(connect, 3000);
-      };
+      ws.onerror = (e) => appendMessage('*error*', 'Erreur : ' + e.message, 'system');
+      ws.onclose = () => appendMessage('*system*', 'Déconnecté du chat.', 'system');
     }
 
-    connect();
+    button.addEventListener('click', () => connectToChannel(input.value.trim() || 'okplonk'));
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') connectToChannel(input.value.trim() || 'okplonk'); });
+
+    // Auto-connexion à okplonk au démarrage
+    connectToChannel('okplonk');
   </script>
 </body>
 </html>
