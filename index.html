@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Chat Widget - Modulaire</title>
+  <title>Chat Widget + Viewer TTS</title>
   <style>
     :root {
       --bg: #0b1020;
@@ -25,7 +25,7 @@
     }
     #app {
       width: 100%;
-      max-width: 500px;
+      max-width: 600px;
       background: var(--card);
       border: 1px solid rgba(255,255,255,0.08);
       border-radius: 12px;
@@ -33,13 +33,24 @@
       padding: 16px;
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 16px;
     }
-    h1 {
-      margin: 0 0 10px;
-      font-size: 18px;
-      color: var(--accent);
-      text-align: center;
+    h1 { margin: 0; font-size: 18px; color: var(--accent); text-align: center; }
+    .card {
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 10px;
+      padding: 12px;
+    }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    input, select {
+      flex: 1;
+      padding: 6px 10px;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.1);
+      background: #0b1229;
+      color: var(--text);
+      font-size: 14px;
     }
     #log {
       flex: 1;
@@ -54,10 +65,7 @@
       margin-bottom: 6px;
       animation: fadeIn 0.3s ease;
     }
-    .user {
-      font-weight: bold;
-      color: var(--accent);
-    }
+    .user { font-weight: bold; color: var(--accent); }
     @keyframes fadeIn {
       from { opacity: 0; transform: translateY(5px); }
       to { opacity: 1; transform: translateY(0); }
@@ -67,29 +75,49 @@
 </head>
 <body>
   <div id="app">
-    <h1>💬 Chat Twitch (modulaire)</h1>
-    <div id="log"></div>
-    <div class="muted" id="state">Connexion en cours...</div>
+    <h1>💬 Chat Twitch + Viewer TTS</h1>
+
+    <!-- SECTION VIEWER TTS -->
+    <div id="tts-control" class="card">
+      <strong>🎙️ Viewer TTS</strong>
+      <div class="row">
+        <input id="ttsUser" type="text" placeholder="Pseudo à lire (ex: okplonk)" />
+        <select id="voiceSelect">
+          <option value="plonk">🟡 Plonk</option>
+          <option value="shandy">🪄 Shandy</option>
+          <option value="dj_pilouk">🎧 DJ Pilouk</option>
+          <option value="gobgob">💚 Gobgob</option>
+        </select>
+      </div>
+      <div class="muted">Seuls les messages du viewer ci-dessus seront lus par TTS Monster avec la voix choisie.</div>
+    </div>
+
+    <!-- CHAT LOG -->
+    <div class="card">
+      <strong>Chat en direct</strong>
+      <div id="log"></div>
+      <div class="muted" id="state">Connexion en cours...</div>
+    </div>
+
+    <!-- IFRAME INVISIBLE POUR TTS -->
+    <iframe id="ttsFrame" style="display:none"></iframe>
   </div>
 
   <script>
-    /* === CONFIGURATION DE BASE === */
     const CONFIG = {
       channel: "#okplonk",
       ignoreBots: ["nightbot", "streamelements", "streamlabs"],
       maxMessages: 50
     };
 
-    /* === VARIABLES GLOBALES === */
     let ws = null;
     const logEl = document.getElementById('log');
     const stateEl = document.getElementById('state');
 
-    /* === FONCTION DE CONNEXION IRC TWITCH === */
+    // Connexion IRC à Twitch
     function connectIRC() {
       const nick = 'justinfan' + Math.floor(Math.random() * 1e6);
       ws = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
-
       ws.onopen = () => {
         stateEl.textContent = 'Connexion ouverte. Authentification...';
         ws.send('CAP REQ :twitch.tv/tags twitch.tv/commands');
@@ -97,7 +125,6 @@
         ws.send('NICK ' + nick);
         ws.send('JOIN ' + CONFIG.channel);
       };
-
       ws.onmessage = (ev) => handleMessage(ev.data);
       ws.onclose = () => {
         stateEl.textContent = 'Déconnecté. Reconnexion dans 3s...';
@@ -105,33 +132,39 @@
       };
     }
 
-    /* === TRAITEMENT DES MESSAGES === */
+    // Gestion des messages IRC
     function handleMessage(raw) {
       const lines = raw.split(/\r?\n/).filter(Boolean);
       for (const line of lines) {
-        if (line.startsWith('PING')) {
-          ws.send('PONG :tmi.twitch.tv');
-          continue;
-        }
+        if (line.startsWith('PING')) { ws.send('PONG :tmi.twitch.tv'); continue; }
         const match = line.match(/^(?:@[^ ]* )?:([^!]+)!.* PRIVMSG #[^ ]+ :(.*)$/);
         if (!match) continue;
         const user = (match[1] || '').toLowerCase();
         if (CONFIG.ignoreBots.includes(user)) continue;
         const msg = match[2] || '';
         renderMessage(user, msg);
+        triggerTTS(user, msg);
       }
     }
 
-    /* === AFFICHAGE D'UN MESSAGE === */
+    // Affichage d'un message
     function renderMessage(user, msg) {
       const div = document.createElement('div');
       div.className = 'msg';
       div.innerHTML = `<span class="user">${user}:</span> ${msg}`;
       logEl.appendChild(div);
-      if (logEl.children.length > CONFIG.maxMessages) {
-        logEl.removeChild(logEl.firstChild);
-      }
+      if (logEl.children.length > CONFIG.maxMessages) logEl.removeChild(logEl.firstChild);
       logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    // Envoi du message au TTS Monster si le viewer correspond
+    function triggerTTS(user, text) {
+      const allowedUser = document.getElementById("ttsUser").value.toLowerCase().trim();
+      if (!allowedUser || user.toLowerCase() !== allowedUser) return;
+      const voice = document.getElementById("voiceSelect").value;
+      const encoded = encodeURIComponent(text);
+      const url = `https://tts.monster/overlay/MapfkEa9wYdlAUrDNabkMTTbpgD3/3d6fb583a5f04a80816d6287d5ad3fca?voice=${voice}&text=${encoded}`;
+      document.getElementById("ttsFrame").src = url;
     }
 
     connectIRC();
