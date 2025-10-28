@@ -1,161 +1,177 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Chat Twitch + Compteur</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>PONG — Chat Twitch contrôle (Reset)</title>
   <style>
-    body {
-      margin: 0;
-      background: #000;
-      color: #fff;
-      font-family: monospace;
-      font-size: 14px;
-      display: flex;
-      flex-direction: column;
-      height: 100vh;
+    :root{ --bg:#000; --fg:#fff; --muted:#bbb; --left:#9ef7a1; --right:#80d8ff; }
+    *{ box-sizing:border-box }
+    html,body{ height:100% }
+    body{
+      margin:0; background:var(--bg); color:var(--fg);
+      font:14px/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      display:flex; flex-direction:column; align-items:center; justify-content:flex-start;
     }
-    header {
-      background: #111;
-      padding: 8px 12px;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      flex-wrap: wrap;
+    header{
+      width:100%; max-width:1100px;
+      padding:10px 14px; display:flex; gap:10px; align-items:center;
+      border-bottom:1px solid #111;
     }
-    header label {
-      font-size: 13px;
-      color: #bbb;
+    h1{ margin:0; font-size:16px; font-weight:800 }
+    .sep{ flex:1 }
+    .field{ display:flex; gap:8px; align-items:center }
+    input{
+      background:#0f0f0f; color:#9ef7a1; border:1px solid #222; border-radius:6px;
+      padding:6px 8px; width:150px;
     }
-    input {
-      background: #222;
-      color: #0f0;
-      border: 1px solid #333;
-      border-radius: 4px;
-      padding: 5px 8px;
-      width: 120px;
+    button{
+      background:#111; color:var(--fg); border:1px solid #222; border-radius:6px;
+      padding:6px 10px; cursor:pointer;
     }
-    button {
-      background: #0f0;
-      color: #000;
-      border: none;
-      border-radius: 4px;
-      padding: 5px 10px;
-      font-weight: bold;
-      cursor: pointer;
+    .score{
+      width:100%; max-width:1100px; text-align:center; padding:8px 0; font-size:20px; font-weight:900;
     }
-    #counter {
-      background: #0f0;
-      color: #000;
-      font-weight: bold;
-      border-radius: 4px;
-      padding: 5px 10px;
-      min-width: 40px;
-      text-align: center;
+    .hint{
+      width:100%; max-width:1100px; text-align:center; color:var(--muted); font-size:12px; padding-bottom:6px;
     }
-    #chat {
-      flex: 1;
-      overflow-y: auto;
-      padding: 10px;
+    .wrap{
+      width:100%; max-width:1100px; aspect-ratio:16/9; border:1px solid #222; position:relative;
+      background:#000; overflow:hidden;
     }
-    .msg { margin: 3px 0; }
-    .nick { color: #00ff00; font-weight: bold; margin-right: 6px; }
-    .system { color: #888; font-style: italic; }
-    mark {
-      background: #555;
-      color: #fff;
-      border-radius: 3px;
-      padding: 0 2px;
+    canvas{ width:100%; height:100%; display:block; image-rendering:pixelated; }
+    .legend{
+      width:100%; max-width:1100px; display:flex; justify-content:space-between; padding:6px 2px; color:#888; font-size:12px;
     }
+    .legend span b{ color:#fff }
+    #chatbox{
+      width:100%; max-width:1100px; text-align:center; padding:10px 0;
+      display:flex; flex-direction:column; align-items:center; gap:2px; font-size:13px; color:var(--fg);
+    }
+    .msg{ opacity:0.85; transition:opacity .3s; }
+    .msg span.nick{ font-weight:700; margin-right:6px; }
+    .leftTeam span.nick{ color:var(--left); }
+    .rightTeam span.nick{ color:var(--right); }
   </style>
 </head>
 <body>
   <header>
-    <label>Chaîne :</label>
-    <input id="channelInput" type="text" placeholder="okplonk" />
-    <button id="connectBtn">Connecter</button>
-
-    <label>Mot à compter :</label>
-    <input id="wordInput" type="text" placeholder="ex: echo" />
-    <span id="counter">0</span>
+    <h1>PONG — contrôlé par le chat</h1>
+    <div class="sep"></div>
+    <div class="field">
+      <span>Chaîne:</span>
+      <input id="channel" type="text" value="okplonk"/>
+      <button id="connect">Connecter</button>
+    </div>
   </header>
 
-  <div id="chat"></div>
+  <div class="score" id="score">0 — 0</div>
+  <div class="hint">Gauche: pseudos A–M & chiffres · Droite: N–Z · Longueur du message → position de la raquette (30=haut, 1=bas)</div>
+
+  <div class="wrap">
+    <canvas id="game" width="1100" height="619"></canvas>
+  </div>
+  <div class="legend">
+    <span>← Gauche: <b>A–M + 0–9</b></span>
+    <span>Droite: <b>N–Z</b> →</span>
+  </div>
+
+  <div id="chatbox"></div>
 
   <script>
-    const chatBox = document.getElementById('chat');
-    const inputChannel = document.getElementById('channelInput');
-    const button = document.getElementById('connectBtn');
-    const inputWord = document.getElementById('wordInput');
-    const counterEl = document.getElementById('counter');
-    let ws = null;
-    let count = 0;
-    let keyword = "";
+    const channelInput=document.getElementById('channel');
+    const btnConnect=document.getElementById('connect');
+    const chatBox=document.getElementById('chatbox');
+    const canvas=document.getElementById('game');
+    const ctx=canvas.getContext('2d');
+    const W=canvas.width,H=canvas.height;
+    const PADDLE_W=5,PADDLE_H=Math.floor(H*0.18),BALL=10;
+    const scoreEl=document.getElementById('score');
+    let ws=null,left,right,bx,by,bvx,bvy,scoreL,scoreR,msgTimes,chatMessages;
 
-    function appendMessage(user, text) {
-      // surligner le mot si trouvé
-      let safe = text;
-      if (keyword) {
-        const re = new RegExp("(" + keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")", "ig");
-        safe = text.replace(re, "<mark>$1</mark>");
-        const matches = text.match(re);
-        if (matches) {
-          count += matches.length;
-          counterEl.textContent = count;
-        }
-      }
-
-      const div = document.createElement('div');
-      div.className = 'msg';
-      div.innerHTML = `<span class="nick">${user}:</span> ${safe}`;
-      chatBox.appendChild(div);
-      chatBox.scrollTop = chatBox.scrollHeight;
+    function initGame(){
+      left={x:20,y:(H-PADDLE_H)/2,target:(H-PADDLE_H)/2};
+      right={x:W-20-PADDLE_W,y:(H-PADDLE_H)/2,target:(H-PADDLE_H)/2};
+      bx=W/2;by=H/2;bvx=6;bvy=3;
+      scoreL=0;scoreR=0;msgTimes=[];chatMessages=[];
+      chatBox.innerHTML='';scoreEl.textContent='0 — 0';
     }
 
-    function connectToChannel(channel) {
-      if (ws) { try { ws.close(); } catch {} }
-      if (!channel) return;
-      chatBox.innerHTML = '';
-      count = 0; counterEl.textContent = count;
-
-      const nick = 'justinfan' + Math.floor(Math.random() * 1e6);
-      const chan = '#' + channel.toLowerCase();
-      ws = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
-      appendMessage('*system*', `Connexion à ${chan}...`);
-
-      ws.onopen = () => {
+    function connectIRC(chanName){
+      if(ws){try{ws.close();}catch{}}
+      initGame();
+      const nick='justinfan'+Math.floor(Math.random()*1e6);
+      const chan='#'+chanName.toLowerCase();
+      ws=new WebSocket('wss://irc-ws.chat.twitch.tv:443');
+      ws.onopen=()=>{
         ws.send('CAP REQ :twitch.tv/tags twitch.tv/commands');
-        ws.send('PASS SCHMOOPIIE');
-        ws.send('NICK ' + nick);
-        ws.send('JOIN ' + chan);
+        ws.send('PASS SCHMOOPIIE');ws.send('NICK '+nick);ws.send('JOIN '+chan);
       };
-
-      ws.onmessage = (event) => {
-        const lines = event.data.split(/\r?\n/).filter(Boolean);
-        for (const line of lines) {
-          if (line.startsWith('PING')) { ws.send('PONG :tmi.twitch.tv'); continue; }
-          const match = line.match(/^(?:@[^ ]* )?:([^!]+)!.* PRIVMSG #[^ ]+ :(.*)$/);
-          if (match) {
-            const user = match[1];
-            const msg = match[2];
-            appendMessage(user, msg);
-          }
+      ws.onmessage=(ev)=>{
+        const lines=ev.data.split(/\\r?\\n/).filter(Boolean);
+        for(const line of lines){
+          if(line.startsWith('PING')){try{ws.send('PONG :tmi.twitch.tv');}catch{};continue;}
+          const m=line.match(/^(?:@[^ ]* )?:([^!]+)!.* PRIVMSG #[^ ]+ :(.*)$/);
+          if(m){const user=(m[1]||'').toLowerCase();const msg=m[2]||'';onChat(user,msg);}
         }
       };
-
-      ws.onclose = () => appendMessage('*system*', 'Déconnecté du chat.');
-      ws.onerror = (e) => appendMessage('*error*', 'Erreur : ' + e.message);
     }
 
-    button.addEventListener('click', () => connectToChannel(inputChannel.value.trim() || 'okplonk'));
-    inputChannel.addEventListener('keydown', e => { if (e.key === 'Enter') connectToChannel(inputChannel.value.trim() || 'okplonk'); });
-    inputWord.addEventListener('input', () => {
-      keyword = inputWord.value.trim();
-      count = 0; counterEl.textContent = count;
-    });
+    btnConnect.addEventListener('click',()=>connectIRC(channelInput.value.trim()||'okplonk'));
+    channelInput.addEventListener('keydown',e=>{if(e.key==='Enter')btnConnect.click();});
 
-    // auto connexion à okplonk
-    connectToChannel('okplonk');
+    function chatSpeed(){const now=Date.now();msgTimes=msgTimes.filter(t=>now-t<10000);return msgTimes.length/10;}
+    function clamp(v,min,max){return v<min?min:v>max?max:v;}
+    function mapLenToY(len){const L=clamp(len|0,1,30);const t=(L-1)/29;return(1-t)*(H-PADDLE_H);}
+    function isLeftTeam(user){const c=user.charAt(0);const up=c.toUpperCase();return(!c)||((up>='0'&&up<='9')||(up>='A'&&up<='M'));}
+
+    function addChatMessage(user,msg,isLeft){
+      chatMessages.push({user,msg,isLeft});
+      if(chatMessages.length>5)chatMessages.shift();
+      chatBox.innerHTML=chatMessages.map(c=>`<div class="msg ${c.isLeft?'leftTeam':'rightTeam'}"><span class="nick">${c.user}</span>${c.msg}</div>`).join('');
+    }
+
+    function onChat(user,msg){
+      msgTimes.push(Date.now());
+      const targetY=mapLenToY(msg.length);
+      const leftSide=isLeftTeam(user);
+      if(leftSide)left.target=targetY;else right.target=targetY;
+      addChatMessage(user,msg,leftSide);
+    }
+
+    function resetBall(toLeft=false){
+      bx=W/2;by=H/2;const speed=6;const angle=(Math.random()*0.6-0.3);
+      bvx=(toLeft?-1:1)*speed;bvy=Math.tan(angle)*speed*0.6;
+    }
+
+    function update(){
+      const base=0.22;const speedBoost=Math.min(0.3,chatSpeed()*0.1);const k=base+speedBoost;
+      left.y+=(left.target-left.y)*k;right.y+=(right.target-right.y)*k;
+      bx+=bvx;by+=bvy;
+      if(by<=0){by=0;bvy*=-1;}else if(by+BALL>=H){by=H-BALL;bvy*=-1;}
+      if(bx<=left.x+PADDLE_W&&bx+BALL>=left.x&&by+BALL>=left.y&&by<=left.y+PADDLE_H){
+        bx=left.x+PADDLE_W;bvx=Math.abs(bvx);
+        const rel=((by+BALL/2)-(left.y+PADDLE_H/2))/(PADDLE_H/2);bvy=clamp(bvy+rel*3,-8,8);
+      }
+      if(bx+BALL>=right.x&&bx<=right.x+PADDLE_W&&by+BALL>=right.y&&by<=right.y+PADDLE_H){
+        bx=right.x-BALL;bvx=-Math.abs(bvx);
+        const rel=((by+BALL/2)-(right.y+PADDLE_H/2))/(PADDLE_H/2);bvy=clamp(bvy+rel*3,-8,8);
+      }
+      if(bx+BALL<0){scoreR++;scoreEl.textContent=scoreL+' — '+scoreR;resetBall(false);} 
+      else if(bx>W){scoreL++;scoreEl.textContent=scoreL+' — '+scoreR;resetBall(true);}
+    }
+
+    function draw(){
+      ctx.clearRect(0,0,W,H);
+      ctx.fillStyle='#111';for(let y=0;y<H;y+=16){ctx.fillRect(W/2-1,y,2,10);}
+      ctx.fillStyle='#fff';
+      ctx.fillRect(left.x,left.y,PADDLE_W,PADDLE_H);
+      ctx.fillRect(right.x,right.y,PADDLE_W,PADDLE_H);
+      ctx.fillRect(bx,by,BALL,BALL);
+    }
+
+    function loop(){update();draw();requestAnimationFrame(loop);}
+    initGame();resetBall();loop();connectIRC('okplonk');
   </script>
 </body>
 </html>
