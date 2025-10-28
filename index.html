@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Widget Décompte — OAuth</title>
+  <title>Widget Décompte — Twitch Chat</title>
   <style>
     :root{
       --bg:#1a1a1a;--text:#fff;--chat-bg:#000;--nick:#00ff00;--highlight:#555;--chroma:#00ff00;--count:#fff;--muted:#bdbdbd;--border:#333;
@@ -33,20 +33,15 @@
   <div class="wrap">
     <div class="left">
       <div class="card">
-        <label>Nom de la chaîne (ex: okplonk)</label>
-        <input id="channel" type="text" placeholder="okplonk">
-      </div>
-
-      <div class="card">
-        <label>Pseudo Twitch (même compte que le token)</label>
-        <input id="username" type="text" placeholder="okplonk">
+        <label>Nom de la chaîne / Pseudo Twitch (ex: okplonk)</label>
+        <input id="user" type="text" placeholder="okplonk">
       </div>
 
       <div class="card">
         <label>Token Twitch (user OAuth)</label>
         <input id="token" type="password" placeholder="oauth:xxxxxxxxxxxxxxxxxxxx">
         <div class="muted" style="margin-top:8px">
-          Besoin d’un token ? Utilise <a class="link" href="https://twitchtokengenerator.com" target="_blank" rel="noopener">twitchtokengenerator.com</a> et sélectionne le scope <code>chat:read</code> (lecture du chat).
+          Besoin d’un token ? Utilise <a class="link" href="https://twitchtokengenerator.com" target="_blank" rel="noopener">twitchtokengenerator.com</a> et coche le scope <code>chat:read</code> (lecture du chat).
         </div>
       </div>
 
@@ -82,7 +77,7 @@
     </div>
   </div>
 
-  <footer>Token et paramètres sauvegardés localement. Utilise le même pseudo que ton compte Twitch.</footer>
+  <footer>Token et paramètres sauvegardés localement. Le pseudo doit correspondre au compte lié au token OAuth.</footer>
 
   <script>
     const $ = id => document.getElementById(id);
@@ -90,16 +85,14 @@
     let ws = null;
 
     let count = parseInt(localStorage.getItem('count')||'0',10)||0;
-    let channel = localStorage.getItem('channel')||'';
-    let username = localStorage.getItem('username')||'';
+    let user = localStorage.getItem('user')||'';
     let token = localStorage.getItem('token')||'';
     let keyword = localStorage.getItem('keyword')||'';
     let bgHex = localStorage.getItem('bgHex')||'#00ff00';
     let numHex = localStorage.getItem('numHex')||'#ffffff';
 
     $('counter').textContent = count;
-    $('channel').value = channel;
-    $('username').value = username||channel;
+    $('user').value = user;
     $('token').value = token;
     $('keyword').value = keyword;
     $('bgHex').value = bgHex;
@@ -108,8 +101,7 @@
 
     function saveAll(){
       localStorage.setItem('count', count);
-      localStorage.setItem('channel', $('channel').value.trim());
-      localStorage.setItem('username', $('username').value.trim());
+      localStorage.setItem('user', $('user').value.trim());
       localStorage.setItem('token', $('token').value.trim());
       localStorage.setItem('keyword', $('keyword').value);
       localStorage.setItem('bgHex', $('bgHex').value);
@@ -132,10 +124,10 @@
       let safe = escapeHtml(msg);
       const kw = $('keyword').value.trim();
       if(kw){
-        try{ const re=new RegExp('('+escapeRegExp(kw)+')','ig'); safe=safe.replace(re,'<mark class="k">$1</mark>'); }catch{}
+        try{ const re=new RegExp('('+escapeRegExp(kw)+')','ig'); safe=safe.replace(re,'<mark class=\"k\">$1</mark>'); }catch{}
       }
       const div=document.createElement('div'); div.className='line';
-      div.innerHTML='<span class="nick">'+escapeHtml(user)+'</span>: '+safe;
+      div.innerHTML='<span class=\"nick\">'+escapeHtml(user)+'</span>: '+safe;
       chat.appendChild(div);
       while(chat.children.length>500) chat.removeChild(chat.firstChild);
       chat.scrollTop=chat.scrollHeight;
@@ -150,30 +142,32 @@
     }
 
     function connectIRC(){
-      const chan=$('channel').value.trim().toLowerCase().replace(/^#?/,'#');
-      const user=$('username').value.trim().toLowerCase();
+      const username=$('user').value.trim().toLowerCase();
       const tok=$('token').value.trim();
-      if(!chan||chan==='#'){ setStatus('Indique une chaîne'); return; }
-      if(!user){ setStatus('Indique ton pseudo Twitch'); return; }
+      if(!username){ setStatus('Indique ton pseudo Twitch'); return; }
       if(!tok.startsWith('oauth:')){ setStatus('Token invalide (doit commencer par oauth:)'); return; }
       saveAll();
       if(ws){ try{ ws.close(); }catch{} }
       ws=new WebSocket('wss://irc-ws.chat.twitch.tv:443');
       ws.onopen=()=>{
         setStatus('Ouvert — authentification...');
-        ws.send('CAP REQ :twitch.tv/tags twitch.tv/commands');
+        ws.send('CAP REQ :twitch.tv/tags twitch.tv/commands twitch.tv/membership');
         ws.send('PASS '+tok);
-        ws.send('NICK '+user);
-        ws.send('JOIN '+chan);
-        setStatus('Connecté à '+chan+' en tant que '+user);
+        ws.send('NICK '+username);
+        ws.send('JOIN #'+username);
+        setStatus('Connecté à #'+username+' en tant que '+username);
       };
       ws.onmessage=ev=>{
         const lines=ev.data.split(/\\r?\\n/).filter(Boolean);
         for(const line of lines){
           if(line.startsWith('PING')){ try{ ws.send('PONG :tmi.twitch.tv'); }catch{}; continue; }
-          const m=line.match(/^(?:@[^ ]* )?:([^!]+)!.* PRIVMSG #[^ ]+ :(.*)$/);
-          if(!m) continue;
-          onMsg(m[1],m[2]);
+          if(line.includes('PRIVMSG')){
+            // parse user + message robustement
+            const userMatch=line.match(/display-name=([^;]+)/);
+            const displayName=userMatch ? userMatch[1] : (line.match(/:([^!]+)!/)||['','?'])[1];
+            const msgMatch=line.match(/PRIVMSG\\s+#[^\\s]+\\s+:(.*)/);
+            if(msgMatch){ onMsg(displayName,msgMatch[1]); }
+          }
         }
       };
       ws.onclose=()=>{ setStatus('Déconnecté — reconnexion dans 3s...'); setTimeout(connectIRC,3000); };
@@ -187,12 +181,10 @@
     $('keyword').addEventListener('input', saveAll);
     $('bgHex').addEventListener('input', ()=>{ applyColors(); saveAll(); });
     $('numHex').addEventListener('input', ()=>{ applyColors(); saveAll(); });
-    $('channel').addEventListener('input', ()=>{ if(!$('username').value.trim()) $('username').value=$('channel').value.trim(); saveAll(); });
-    $('channel').addEventListener('keydown', e=>{ if(e.key==='Enter') connectIRC(); });
+    $('user').addEventListener('keydown', e=>{ if(e.key==='Enter') connectIRC(); });
     $('token').addEventListener('keydown', e=>{ if(e.key==='Enter') connectIRC(); });
-    $('username').addEventListener('keydown', e=>{ if(e.key==='Enter') connectIRC(); });
 
-    if($('channel').value && $('token').value && $('username').value){ setTimeout(connectIRC,500); }
+    if($('user').value && $('token').value){ setTimeout(connectIRC,500); }
   </script>
 </body>
 </html>
