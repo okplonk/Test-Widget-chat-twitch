@@ -1,0 +1,140 @@
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Chat Widget - Modulaire</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --card: #0f1630;
+      --text: #e8eef7;
+      --muted: #9aa4b2;
+      --accent: #94e2ff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: radial-gradient(1000px 600px at 20% 0%, #0e1740, #0a1024);
+      color: var(--text);
+      font-family: Inter, system-ui, sans-serif;
+      display: flex;
+      justify-content: center;
+      padding: 20px;
+    }
+    #app {
+      width: 100%;
+      max-width: 500px;
+      background: var(--card);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 12px;
+      box-shadow: 0 10px 30px rgba(2,6,23,0.55);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    h1 {
+      margin: 0 0 10px;
+      font-size: 18px;
+      color: var(--accent);
+      text-align: center;
+    }
+    #log {
+      flex: 1;
+      overflow-y: auto;
+      background: #0a122b;
+      border-radius: 10px;
+      padding: 10px;
+      font-family: ui-monospace, monospace;
+      font-size: 14px;
+    }
+    .msg {
+      margin-bottom: 6px;
+      animation: fadeIn 0.3s ease;
+    }
+    .user {
+      font-weight: bold;
+      color: var(--accent);
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(5px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .muted { color: var(--muted); font-size: 13px; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <h1>💬 Chat Twitch (modulaire)</h1>
+    <div id="log"></div>
+    <div class="muted" id="state">Connexion en cours...</div>
+  </div>
+
+  <script>
+    /* === CONFIGURATION DE BASE === */
+    const CONFIG = {
+      channel: "#okplonk",
+      ignoreBots: ["nightbot", "streamelements", "streamlabs"],
+      maxMessages: 50
+    };
+
+    /* === VARIABLES GLOBALES === */
+    let ws = null;
+    const logEl = document.getElementById('log');
+    const stateEl = document.getElementById('state');
+
+    /* === FONCTION DE CONNEXION IRC TWITCH === */
+    function connectIRC() {
+      const nick = 'justinfan' + Math.floor(Math.random() * 1e6);
+      ws = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
+
+      ws.onopen = () => {
+        stateEl.textContent = 'Connexion ouverte. Authentification...';
+        ws.send('CAP REQ :twitch.tv/tags twitch.tv/commands');
+        ws.send('PASS SCHMOOPIIE');
+        ws.send('NICK ' + nick);
+        ws.send('JOIN ' + CONFIG.channel);
+      };
+
+      ws.onmessage = (ev) => handleMessage(ev.data);
+      ws.onclose = () => {
+        stateEl.textContent = 'Déconnecté. Reconnexion dans 3s...';
+        setTimeout(connectIRC, 3000);
+      };
+    }
+
+    /* === TRAITEMENT DES MESSAGES === */
+    function handleMessage(raw) {
+      const lines = raw.split(/\r?\n/).filter(Boolean);
+      for (const line of lines) {
+        if (line.startsWith('PING')) {
+          ws.send('PONG :tmi.twitch.tv');
+          continue;
+        }
+        const match = line.match(/^(?:@[^ ]* )?:([^!]+)!.* PRIVMSG #[^ ]+ :(.*)$/);
+        if (!match) continue;
+        const user = (match[1] || '').toLowerCase();
+        if (CONFIG.ignoreBots.includes(user)) continue;
+        const msg = match[2] || '';
+        renderMessage(user, msg);
+      }
+    }
+
+    /* === AFFICHAGE D'UN MESSAGE === */
+    function renderMessage(user, msg) {
+      const div = document.createElement('div');
+      div.className = 'msg';
+      div.innerHTML = `<span class="user">${user}:</span> ${msg}`;
+      logEl.appendChild(div);
+      if (logEl.children.length > CONFIG.maxMessages) {
+        logEl.removeChild(logEl.firstChild);
+      }
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    connectIRC();
+  </script>
+</body>
+</html>
