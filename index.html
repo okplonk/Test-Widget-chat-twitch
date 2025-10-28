@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Chat Twitch (choix de chaîne)</title>
+  <title>Chat Twitch + Compteur</title>
   <style>
     body {
       margin: 0;
@@ -21,6 +21,7 @@
       display: flex;
       align-items: center;
       gap: 10px;
+      flex-wrap: wrap;
     }
     header label {
       font-size: 13px;
@@ -32,7 +33,7 @@
       border: 1px solid #333;
       border-radius: 4px;
       padding: 5px 8px;
-      width: 140px;
+      width: 120px;
     }
     button {
       background: #0f0;
@@ -43,6 +44,15 @@
       font-weight: bold;
       cursor: pointer;
     }
+    #counter {
+      background: #0f0;
+      color: #000;
+      font-weight: bold;
+      border-radius: 4px;
+      padding: 5px 10px;
+      min-width: 40px;
+      text-align: center;
+    }
     #chat {
       flex: 1;
       overflow-y: auto;
@@ -51,6 +61,12 @@
     .msg { margin: 3px 0; }
     .nick { color: #00ff00; font-weight: bold; margin-right: 6px; }
     .system { color: #888; font-style: italic; }
+    mark {
+      background: #555;
+      color: #fff;
+      border-radius: 3px;
+      padding: 0 2px;
+    }
   </style>
 </head>
 <body>
@@ -58,20 +74,40 @@
     <label>Chaîne :</label>
     <input id="channelInput" type="text" placeholder="okplonk" />
     <button id="connectBtn">Connecter</button>
+
+    <label>Mot à compter :</label>
+    <input id="wordInput" type="text" placeholder="ex: echo" />
+    <span id="counter">0</span>
   </header>
 
   <div id="chat"></div>
 
   <script>
     const chatBox = document.getElementById('chat');
-    const input = document.getElementById('channelInput');
+    const inputChannel = document.getElementById('channelInput');
     const button = document.getElementById('connectBtn');
+    const inputWord = document.getElementById('wordInput');
+    const counterEl = document.getElementById('counter');
     let ws = null;
+    let count = 0;
+    let keyword = "";
 
-    function appendMessage(user, text, cls = '') {
+    function appendMessage(user, text) {
+      // surligner le mot si trouvé
+      let safe = text;
+      if (keyword) {
+        const re = new RegExp("(" + keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + ")", "ig");
+        safe = text.replace(re, "<mark>$1</mark>");
+        const matches = text.match(re);
+        if (matches) {
+          count += matches.length;
+          counterEl.textContent = count;
+        }
+      }
+
       const div = document.createElement('div');
-      div.className = 'msg ' + cls;
-      div.innerHTML = cls === 'system' ? text : `<span class="nick">${user}:</span> ${text}`;
+      div.className = 'msg';
+      div.innerHTML = `<span class="nick">${user}:</span> ${safe}`;
       chatBox.appendChild(div);
       chatBox.scrollTop = chatBox.scrollHeight;
     }
@@ -80,10 +116,12 @@
       if (ws) { try { ws.close(); } catch {} }
       if (!channel) return;
       chatBox.innerHTML = '';
+      count = 0; counterEl.textContent = count;
+
       const nick = 'justinfan' + Math.floor(Math.random() * 1e6);
       const chan = '#' + channel.toLowerCase();
       ws = new WebSocket('wss://irc-ws.chat.twitch.tv:443');
-      appendMessage('*system*', `Connexion à ${chan}...`, 'system');
+      appendMessage('*system*', `Connexion à ${chan}...`);
 
       ws.onopen = () => {
         ws.send('CAP REQ :twitch.tv/tags twitch.tv/commands');
@@ -105,14 +143,18 @@
         }
       };
 
-      ws.onerror = (e) => appendMessage('*error*', 'Erreur : ' + e.message, 'system');
-      ws.onclose = () => appendMessage('*system*', 'Déconnecté du chat.', 'system');
+      ws.onclose = () => appendMessage('*system*', 'Déconnecté du chat.');
+      ws.onerror = (e) => appendMessage('*error*', 'Erreur : ' + e.message);
     }
 
-    button.addEventListener('click', () => connectToChannel(input.value.trim() || 'okplonk'));
-    input.addEventListener('keydown', e => { if (e.key === 'Enter') connectToChannel(input.value.trim() || 'okplonk'); });
+    button.addEventListener('click', () => connectToChannel(inputChannel.value.trim() || 'okplonk'));
+    inputChannel.addEventListener('keydown', e => { if (e.key === 'Enter') connectToChannel(inputChannel.value.trim() || 'okplonk'); });
+    inputWord.addEventListener('input', () => {
+      keyword = inputWord.value.trim();
+      count = 0; counterEl.textContent = count;
+    });
 
-    // Auto-connexion à okplonk au démarrage
+    // auto connexion à okplonk
     connectToChannel('okplonk');
   </script>
 </body>
