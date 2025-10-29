@@ -1,177 +1,66 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>PONG — Chat Twitch contrôle (Reset)</title>
+  <meta charset="UTF-8">
+  <title>Comparateur Rule34 (SFW - GitHub Pages)</title>
   <style>
-    :root{ --bg:#000; --fg:#fff; --muted:#bbb; --left:#9ef7a1; --right:#80d8ff; }
-    *{ box-sizing:border-box }
-    html,body{ height:100% }
-    body{
-      margin:0; background:var(--bg); color:var(--fg);
-      font:14px/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-      display:flex; flex-direction:column; align-items:center; justify-content:flex-start;
-    }
-    header{
-      width:100%; max-width:1100px;
-      padding:10px 14px; display:flex; gap:10px; align-items:center;
-      border-bottom:1px solid #111;
-    }
-    h1{ margin:0; font-size:16px; font-weight:800 }
-    .sep{ flex:1 }
-    .field{ display:flex; gap:8px; align-items:center }
-    input{
-      background:#0f0f0f; color:#9ef7a1; border:1px solid #222; border-radius:6px;
-      padding:6px 8px; width:150px;
-    }
-    button{
-      background:#111; color:var(--fg); border:1px solid #222; border-radius:6px;
-      padding:6px 10px; cursor:pointer;
-    }
-    .score{
-      width:100%; max-width:1100px; text-align:center; padding:8px 0; font-size:20px; font-weight:900;
-    }
-    .hint{
-      width:100%; max-width:1100px; text-align:center; color:var(--muted); font-size:12px; padding-bottom:6px;
-    }
-    .wrap{
-      width:100%; max-width:1100px; aspect-ratio:16/9; border:1px solid #222; position:relative;
-      background:#000; overflow:hidden;
-    }
-    canvas{ width:100%; height:100%; display:block; image-rendering:pixelated; }
-    .legend{
-      width:100%; max-width:1100px; display:flex; justify-content:space-between; padding:6px 2px; color:#888; font-size:12px;
-    }
-    .legend span b{ color:#fff }
-    #chatbox{
-      width:100%; max-width:1100px; text-align:center; padding:10px 0;
-      display:flex; flex-direction:column; align-items:center; gap:2px; font-size:13px; color:var(--fg);
-    }
-    .msg{ opacity:0.85; transition:opacity .3s; }
-    .msg span.nick{ font-weight:700; margin-right:6px; }
-    .leftTeam span.nick{ color:var(--left); }
-    .rightTeam span.nick{ color:var(--right); }
+    body { font-family: Arial, sans-serif; background: #111; color: #eee; text-align: center; padding: 40px; }
+    input { padding: 8px; margin: 5px; border: none; border-radius: 5px; width: 150px; text-align: center; }
+    button { padding: 8px 16px; margin: 10px; cursor: pointer; background: #444; color: white; border: none; border-radius: 5px; transition: background 0.2s; }
+    button:hover { background: #666; }
+    .result { font-size: 1.2em; margin-top: 20px; }
   </style>
 </head>
 <body>
-  <header>
-    <h1>PONG — contrôlé par le chat</h1>
-    <div class="sep"></div>
-    <div class="field">
-      <span>Chaîne:</span>
-      <input id="channel" type="text" value="okplonk"/>
-      <button id="connect">Connecter</button>
-    </div>
-  </header>
+  <h1>Comparateur de tags (Rule34.xxx - SFW)</h1>
 
-  <div class="score" id="score">0 — 0</div>
-  <div class="hint">Gauche: pseudos A–M & chiffres · Droite: N–Z · Longueur du message → position de la raquette (30=haut, 1=bas)</div>
-
-  <div class="wrap">
-    <canvas id="game" width="1100" height="619"></canvas>
-  </div>
-  <div class="legend">
-    <span>← Gauche: <b>A–M + 0–9</b></span>
-    <span>Droite: <b>N–Z</b> →</span>
+  <div>
+    <input id="tag1" placeholder="Tag 1" value="hololive">
+    <input id="tag2" placeholder="Tag 2" value="vtuber">
   </div>
 
-  <div id="chatbox"></div>
+  <button id="compareBtn">Comparer</button>
+
+  <div class="result" id="result"></div>
 
   <script>
-    const channelInput=document.getElementById('channel');
-    const btnConnect=document.getElementById('connect');
-    const chatBox=document.getElementById('chatbox');
-    const canvas=document.getElementById('game');
-    const ctx=canvas.getContext('2d');
-    const W=canvas.width,H=canvas.height;
-    const PADDLE_W=5,PADDLE_H=Math.floor(H*0.18),BALL=10;
-    const scoreEl=document.getElementById('score');
-    let ws=null,left,right,bx,by,bvx,bvy,scoreL,scoreR,msgTimes,chatMessages;
-
-    function initGame(){
-      left={x:20,y:(H-PADDLE_H)/2,target:(H-PADDLE_H)/2};
-      right={x:W-20-PADDLE_W,y:(H-PADDLE_H)/2,target:(H-PADDLE_H)/2};
-      bx=W/2;by=H/2;bvx=6;bvy=3;
-      scoreL=0;scoreR=0;msgTimes=[];chatMessages=[];
-      chatBox.innerHTML='';scoreEl.textContent='0 — 0';
+    async function getCount(tag) {
+      const url = `https://api.rule34.xxx/index.php?page=dapi&s=tag&q=index&name=${encodeURIComponent(tag)}&json=1`;
+      const response = await fetch(url);
+      if (!response.ok) throw new Error("Erreur API");
+      const data = await response.json();
+      if (Array.isArray(data) && data.length > 0) return parseInt(data[0].count);
+      return 0;
     }
 
-    function connectIRC(chanName){
-      if(ws){try{ws.close();}catch{}}
-      initGame();
-      const nick='justinfan'+Math.floor(Math.random()*1e6);
-      const chan='#'+chanName.toLowerCase();
-      ws=new WebSocket('wss://irc-ws.chat.twitch.tv:443');
-      ws.onopen=()=>{
-        ws.send('CAP REQ :twitch.tv/tags twitch.tv/commands');
-        ws.send('PASS SCHMOOPIIE');ws.send('NICK '+nick);ws.send('JOIN '+chan);
-      };
-      ws.onmessage=(ev)=>{
-        const lines=ev.data.split(/\\r?\\n/).filter(Boolean);
-        for(const line of lines){
-          if(line.startsWith('PING')){try{ws.send('PONG :tmi.twitch.tv');}catch{};continue;}
-          const m=line.match(/^(?:@[^ ]* )?:([^!]+)!.* PRIVMSG #[^ ]+ :(.*)$/);
-          if(m){const user=(m[1]||'').toLowerCase();const msg=m[2]||'';onChat(user,msg);}
-        }
-      };
-    }
+    async function compareTags() {
+      const tag1 = document.getElementById("tag1").value.trim().replace(/^#/, "");
+      const tag2 = document.getElementById("tag2").value.trim().replace(/^#/, "");
+      const resultDiv = document.getElementById("result");
 
-    btnConnect.addEventListener('click',()=>connectIRC(channelInput.value.trim()||'okplonk'));
-    channelInput.addEventListener('keydown',e=>{if(e.key==='Enter')btnConnect.click();});
-
-    function chatSpeed(){const now=Date.now();msgTimes=msgTimes.filter(t=>now-t<10000);return msgTimes.length/10;}
-    function clamp(v,min,max){return v<min?min:v>max?max:v;}
-    function mapLenToY(len){const L=clamp(len|0,1,30);const t=(L-1)/29;return(1-t)*(H-PADDLE_H);}
-    function isLeftTeam(user){const c=user.charAt(0);const up=c.toUpperCase();return(!c)||((up>='0'&&up<='9')||(up>='A'&&up<='M'));}
-
-    function addChatMessage(user,msg,isLeft){
-      chatMessages.push({user,msg,isLeft});
-      if(chatMessages.length>5)chatMessages.shift();
-      chatBox.innerHTML=chatMessages.map(c=>`<div class="msg ${c.isLeft?'leftTeam':'rightTeam'}"><span class="nick">${c.user}</span>${c.msg}</div>`).join('');
-    }
-
-    function onChat(user,msg){
-      msgTimes.push(Date.now());
-      const targetY=mapLenToY(msg.length);
-      const leftSide=isLeftTeam(user);
-      if(leftSide)left.target=targetY;else right.target=targetY;
-      addChatMessage(user,msg,leftSide);
-    }
-
-    function resetBall(toLeft=false){
-      bx=W/2;by=H/2;const speed=6;const angle=(Math.random()*0.6-0.3);
-      bvx=(toLeft?-1:1)*speed;bvy=Math.tan(angle)*speed*0.6;
-    }
-
-    function update(){
-      const base=0.22;const speedBoost=Math.min(0.3,chatSpeed()*0.1);const k=base+speedBoost;
-      left.y+=(left.target-left.y)*k;right.y+=(right.target-right.y)*k;
-      bx+=bvx;by+=bvy;
-      if(by<=0){by=0;bvy*=-1;}else if(by+BALL>=H){by=H-BALL;bvy*=-1;}
-      if(bx<=left.x+PADDLE_W&&bx+BALL>=left.x&&by+BALL>=left.y&&by<=left.y+PADDLE_H){
-        bx=left.x+PADDLE_W;bvx=Math.abs(bvx);
-        const rel=((by+BALL/2)-(left.y+PADDLE_H/2))/(PADDLE_H/2);bvy=clamp(bvy+rel*3,-8,8);
+      if (!tag1 || !tag2) {
+        resultDiv.textContent = "Veuillez entrer deux tags à comparer.";
+        return;
       }
-      if(bx+BALL>=right.x&&bx<=right.x+PADDLE_W&&by+BALL>=right.y&&by<=right.y+PADDLE_H){
-        bx=right.x-BALL;bvx=-Math.abs(bvx);
-        const rel=((by+BALL/2)-(right.y+PADDLE_H/2))/(PADDLE_H/2);bvy=clamp(bvy+rel*3,-8,8);
+
+      resultDiv.textContent = "Comparaison en cours...";
+
+      try {
+        const [count1, count2] = await Promise.all([getCount(tag1), getCount(tag2)]);
+
+        let text = `Résultats : #${tag1} = ${count1} | #${tag2} = ${count2}`;
+        if (count1 > count2) text += ` 🏆 ${tag1} gagne !`;
+        else if (count2 > count1) text += ` 🏆 ${tag2} gagne !`;
+        else text += ` ⚖️ Égalité parfaite !`;
+
+        resultDiv.textContent = text;
+      } catch (err) {
+        resultDiv.textContent = "Erreur lors de la récupération des données (CORS).\nHébergez ce fichier sur GitHub Pages pour que ça fonctionne.";
+        console.error(err);
       }
-      if(bx+BALL<0){scoreR++;scoreEl.textContent=scoreL+' — '+scoreR;resetBall(false);} 
-      else if(bx>W){scoreL++;scoreEl.textContent=scoreL+' — '+scoreR;resetBall(true);}
     }
 
-    function draw(){
-      ctx.clearRect(0,0,W,H);
-      ctx.fillStyle='#111';for(let y=0;y<H;y+=16){ctx.fillRect(W/2-1,y,2,10);}
-      ctx.fillStyle='#fff';
-      ctx.fillRect(left.x,left.y,PADDLE_W,PADDLE_H);
-      ctx.fillRect(right.x,right.y,PADDLE_W,PADDLE_H);
-      ctx.fillRect(bx,by,BALL,BALL);
-    }
-
-    function loop(){update();draw();requestAnimationFrame(loop);}
-    initGame();resetBall();loop();connectIRC('okplonk');
+    document.getElementById("compareBtn").addEventListener("click", compareTags);
   </script>
 </body>
 </html>
